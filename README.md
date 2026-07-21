@@ -9,7 +9,7 @@ nems-ai is designed to be run directly on the NEMS Server; it doesn't connect to
 
 **nems-ai is not installed by default and will not install itself.** You must install it yourself with `apt install nems-ai`
 
-Current Status: Proof of concept
+**Current Status:** Proof of concept
 
 Requires NEMS Linux 1.8.
 
