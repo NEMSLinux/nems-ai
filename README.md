@@ -3,7 +3,7 @@ An on-device AI and Smart Notification engine for NEMS Linux by Robbie Ferguson.
 
 ![nems-ai Terminal Output](nems-ai_1.8.008.gif)
 
-nems-ai downloads the entire content of the NEMS Documentation site and ingests it as its knowledge, combined with the Llama 3.2-1B LLM.
+nems-ai downloads the entire content of the NEMS Documentation site and ingests it as its knowledge.
 
 nems-ai is designed to be run directly on the NEMS Server; it doesn't connect to any servers, use any cloud APIs or "big tech" infrastructure or service. It doesn't share anything with anyone, and simply runs on your local NEMS Server if you call it.
 
