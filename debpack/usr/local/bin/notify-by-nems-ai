@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+
+"""
+NEMS Smart Notification Handler
+===============================
+Author: Robbie Ferguson - NEMS Linux
+Description: Enriches NEMS alerts with local AI root-cause analysis and potential fixes.
+"""
+
+import os
+import sys
+
+MODEL_PATH = "/usr/local/share/nems/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+
+# Read Nagios Macro Environment Variables
+hostname = os.getenv("NAGIOS_HOSTNAME", "Unknown-Host")
+servicedesc = os.getenv("NAGIOS_SERVICEDESC", "Host Check")
+servicestate = os.getenv("NAGIOS_SERVICESTATE", os.getenv("NAGIOS_HOSTSTATE", "UNKNOWN"))
+serviceoutput = os.getenv("NAGIOS_SERVICEOUTPUT", os.getenv("NAGIOS_HOSTOUTPUT", "No output provided."))
+longoutput = os.getenv("NAGIOS_LONGSERVICEOUTPUT", "")
+
+def get_raw_fallback():
+    return f"🚨 [{servicestate}] {hostname} - {servicedesc}\nResult: {serviceoutput}"
+
+# If model missing, exit immediately with fallback
+if not os.path.exists(MODEL_PATH):
+    print(get_raw_fallback())
+    sys.exit(0)
+
+try:
+    from llama_cpp import Llama
+
+    SYSTEM_PROMPT = """You are a senior Linux Site Reliability Engineer analyzing a Nagios monitoring alert for NEMS Linux.
+    Provide:
+    1. Probable Root Cause (1 short sentence)
+    2. Top 2 Linux commands to diagnose or resolve the issue.
+    Keep response under 60 words. No intro or chit-chat."""
+
+    alert_context = f"Host: {hostname}\nService: {servicedesc}\nState: {servicestate}\nOutput: {serviceoutput}\nDetails: {longoutput}"
+    prompt = f"<|start_header_id|>system<|end_header_id|>\n\n{SYSTEM_PROMPT}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{alert_context}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+
+    llm = Llama(
+        model_path=MODEL_PATH,
+        n_ctx=1024,
+        n_threads=4,
+        verbose=False
+    )
+
+    response = llm(
+        prompt,
+        max_tokens=120,
+        temperature=0.1,
+        stop=["<|eot_id|>"]
+    )
+
+    ai_analysis = response["choices"][0]["text"].strip()
+
+    # Formatted Alert Output
+    formatted_alert = f"""🚨 [{servicestate}] {hostname} - {servicedesc}
+Raw Output: {serviceoutput}
+
+🤖 NEMS AI Copilot Diagnostics:
+{ai_analysis}"""
+
+    print(formatted_alert)
+
+except Exception as e:
+    # Fail-safe: Always output standard notification if AI encounters an error
+    sys.stderr.write(f"NEMS AI Notification Exception: {e}\n")
+    print(get_raw_fallback())
