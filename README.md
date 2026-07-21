@@ -18,3 +18,4 @@ Future features
 
 * Ability to ask nems-ai about the state of any of your monitored systems. E.g., "How long as my web server been down for?" or "How much disk space is left on my domain controller?"
 * nems-ai to optionally power notifications, making them much more detailed and unique. E.g., "The web server at location 3 has been flapping for a few hours. I notice the CPU usage has been really high during this time, and it looks like there's a big powershell process running, so it may be good to remote in and have a look."
+* A better understanding of NEMS documentation as source of truth. Currently, the LLM gets confused between NEMS Linux and Nagios Core, so provides CLI check commands rather than following the NEMS configuration flow.
