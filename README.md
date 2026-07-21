@@ -7,7 +7,7 @@ nems-ai downloads the entire content of the NEMS Documentation site and ingests 
 
 nems-ai is designed to be run directly on the NEMS Server; it doesn't connect to any servers, use any cloud APIs or "big tech" infrastructure or service. It doesn't share anything with anyone, and simply runs on your local NEMS Server if you call it.
 
-nems-ai is not installed by default and will not install itself. You must install it yourself with `apt install nems-ai`
+**nems-ai is not installed by default and will not install itself.** You must install it yourself with `apt install nems-ai`
 
 Current Status: Proof of concept
 
