@@ -1,5 +1,5 @@
 # nems-ai
-On-device AI Copilot and Smart Notification engine for NEMS Linux.
+An on-device AI and Smart Notification engine for NEMS Linux by Robbie Ferguson.
 
 ![nems-ai Terminal Output](nems-ai_1.8.008.gif)
 
