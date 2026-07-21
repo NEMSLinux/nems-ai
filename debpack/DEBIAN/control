@@ -5,6 +5,6 @@ Section: main
 Maintainer: NEMS Linux <nems@category5.tv>
 Architecture: all
 Provides: nems-ai
-Version: 1.8.004
+Version: 1.8.009
 Depends: python3, python3-pip, curl, build-essential, cmake, nems-docs
 Description: On-device AI Copilot and Smart Notification engine for NEMS Linux.

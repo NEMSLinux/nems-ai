@@ -2,28 +2,27 @@
 set -e
 
 MODEL_DIR="/usr/local/share/nems/models"
-MODEL_FILE="${MODEL_DIR}/Llama-3.2-3B-Instruct-Q4_K_M.gguf"
-# Model download URL
-MODEL_URL="https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+MODEL_URL="https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+MODEL_FILE="${MODEL_DIR}/nems-ai.gguf"
 
 echo "Setting up NEMS AI environment..."
 
-# 1. Ensure directory exists
+# Ensure directory exists
 mkdir -p "$MODEL_DIR"
 
-# 2. Install llama-cpp-python binding if not installed
+# Install llama-cpp-python binding if not installed
 if ! python3 -c "import llama_cpp" >/dev/null 2>&1; then
     echo "Installing llama-cpp-python binding..."
     pip3 install llama-cpp-python --break-system-packages --quiet
 fi
 
-# 3. Download the model if missing
-if [ ! -f "$MODEL_FILE" ]; then
-    echo "Downloading NEMS AI Model (~1.8GB)... This may take a few minutes."
+# Download the model
+#if [ ! -f "$MODEL_FILE" ]; then
+    echo "Downloading NEMS AI Model... This may take a few minutes."
     curl -L -o "$MODEL_FILE" "$MODEL_URL"
-fi
+#fi
 
-# 4. Set permissions
+# Set permissions
 chmod 755 /usr/local/bin/nems-ai
 chmod 755 /usr/local/bin/notify-by-nems-ai
 chmod 644 "$MODEL_FILE"
