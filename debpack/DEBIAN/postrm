@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        # Purge the LLM Models directory on explicit purge only
+        MODEL_DIR="/usr/local/share/nems/models"
+        if [ -d "${MODEL_DIR}" ]; then
+            rm -rf "${MODEL_DIR}"
+        fi
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+    *)
+        echo "postrm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

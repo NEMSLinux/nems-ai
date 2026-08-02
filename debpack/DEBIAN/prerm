@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|purge)
+        # Verify pip3 exists before attempting uninstall
+        if command -v pip3 >/dev/null 2>&1; then
+            pip3 uninstall llama-cpp-python -y --break-system-packages --quiet || true
+        fi
+        ;;
+    upgrade|failed-upgrade|deconfigure)
+        ;;
+    *)
+        echo "prerm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
