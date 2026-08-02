@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# If this path ever changes, be sure to change it in prerm as well
+# If this path ever changes, be sure to change it in postrm as well
 MODEL_DIR="/usr/local/share/nems/models"
 MODEL_URL="https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
 MODEL_FILE="${MODEL_DIR}/nems-ai.gguf"
