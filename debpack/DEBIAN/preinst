@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+if [ "$TOTAL_RAM_KB" -lt 3800000 ]; then
+  echo "ERROR: NEMS AI requires at least 4GB of RAM."
+  exit 1
+fi
+
+exit 0

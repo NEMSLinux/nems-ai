@@ -1,33 +1,49 @@
 #!/bin/sh
 set -e
 
-# If this path ever changes, be sure to change it in postrm as well
-MODEL_DIR="/usr/local/share/nems/models"
-MODEL_URL="https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
-MODEL_FILE="${MODEL_DIR}/nems-ai.gguf"
-
-echo "Setting up NEMS AI environment..."
-
-# Ensure directory exists
-mkdir -p "$MODEL_DIR"
-
-# Install llama-cpp-python binding if not installed
-if ! python3 -c "import llama_cpp" >/dev/null 2>&1; then
-    echo "Installing llama-cpp-python binding..."
-    pip3 install llama-cpp-python --break-system-packages --quiet
+# Ensure Ollama service is running for model creation
+if systemctl is-active --quiet ollama; then
+    echo "Ollama service is active."
+else
+    echo "Starting Ollama service..."
+    systemctl start ollama || true
+    sleep 3
 fi
 
-# Download the model
-#if [ ! -f "$MODEL_FILE" ]; then
-    echo "Downloading NEMS AI Model... This may take a few minutes."
-    curl -L -o "$MODEL_FILE" "$MODEL_URL"
-#fi
+# Detect Total RAM in Megabytes
+TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
 
-# Set permissions
-chmod 755 /usr/local/bin/nems-ai
-chmod 755 /usr/local/bin/notify-by-nems-ai
-chmod 644 "$MODEL_FILE"
+# Select hardware tier
+if [ "$TOTAL_RAM_MB" -ge 15000 ]; then
+    # 16GB+ Systems (VMs / Heavy x86 bare metal)
+    BASE_MODEL="llama3.1:8b"
+elif [ "$TOTAL_RAM_MB" -ge 3800 ]; then
+    # 4GB - 8GB Systems (RPi 4/5 4GB or 8GB)
+    BASE_MODEL="llama3.2:3b"
+else
+    # < 4GB Systems (RPi 3 / RPi 4 2GB)
+    BASE_MODEL="llama3.2:1b"
+fi
 
-echo "NEMS AI installation complete."
+echo "Detected ${TOTAL_RAM_MB}MB RAM. Selected base model: ${BASE_MODEL}"
+
+# Pull base model and build 'nems-ai' model alias
+if command -v ollama >/dev/null 2>&1; then
+    echo "Pulling ${BASE_MODEL} payload..."
+    ollama pull "$BASE_MODEL"
+
+    # Create temporary Modelfile
+    TMP_MODELFILE=$(mktemp)
+    cat <<EOF > "$TMP_MODELFILE"
+FROM ${BASE_MODEL}
+PARAMETER temperature 0.2
+PARAMETER num_predict 60
+EOF
+
+    echo "Binding ${BASE_MODEL} to 'nems-ai' Ollama alias..."
+    ollama create nems-ai -f "$TMP_MODELFILE"
+    rm -f "$TMP_MODELFILE"
+fi
 
 exit 0
