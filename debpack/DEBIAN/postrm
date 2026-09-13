@@ -3,14 +3,73 @@ set -e
 
 case "$1" in
     purge)
-        # Purge the LLM Models directory on explicit purge only
-        MODEL_DIR="/usr/local/share/nems/nems-ai/models"
-        if [ -d "${MODEL_DIR}" ]; then
-            rm -rf "${MODEL_DIR}"
+        echo "====================================================="
+        echo " Purging NEMS AI Component & Ollama Runtime"
+        echo "====================================================="
+
+        # 1. Stop and disable Ollama systemd service
+        if command -v systemctl > /dev/null 2>&1; then
+            echo "--> Stopping and disabling Ollama service..."
+            systemctl stop ollama.service 2>/dev/null || true
+            systemctl disable ollama.service 2>/dev/null || true
+        fi
+
+        # 2. Remove Ollama service file
+        if [ -f /etc/systemd/system/ollama.service ]; then
+            echo "--> Removing Ollama systemd unit file..."
+            rm -f /etc/systemd/system/ollama.service
+            if command -v systemctl > /dev/null 2>&1; then
+                systemctl daemon-reload || true
+            fi
+        fi
+
+        # 3. Remove Ollama binary
+        if [ -f /usr/local/bin/ollama ]; then
+            echo "--> Removing Ollama binary..."
+            rm -f /usr/local/bin/ollama
+        fi
+        if [ -f /usr/bin/ollama ]; then
+            rm -f /usr/bin/ollama
+        fi
+
+        # 4. Remove system user and group
+        if id "ollama" >/dev/null 2>&1; then
+            echo "--> Removing ollama system user and group..."
+            userdel ollama 2>/dev/null || true
+            groupdel ollama 2>/dev/null || true
+        fi
+
+        # 5. Remove Ollama model cache & home directories
+        echo "--> Clearing Ollama model cache..."
+        rm -rf /usr/share/ollama
+        rm -rf /var/lib/ollama
+        rm -rf ~/.ollama
+
+        # 6. Purge nems-ai directory recursively (database, logs, scripts)
+        echo "--> Removing NEMS AI directory (/usr/local/share/nems/nems-ai)..."
+        rm -rf /usr/local/share/nems/nems-ai
+
+        echo "====================================================="
+        echo " NEMS AI & Ollama Purge Complete"
+        echo "====================================================="
+        ;;
+
+    remove)
+        echo "====================================================="
+        echo " Removing NEMS AI Component"
+        echo "====================================================="
+
+        # Stop service on standard removal
+        if command -v systemctl > /dev/null 2>&1; then
+            echo "--> Stopping Ollama service..."
+            systemctl stop ollama.service 2>/dev/null || true
+            systemctl disable ollama.service 2>/dev/null || true
         fi
         ;;
-    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
         ;;
+
     *)
         echo "postrm called with unknown argument '$1'" >&2
         exit 1

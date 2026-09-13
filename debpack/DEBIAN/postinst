@@ -1,49 +1,118 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-# Ensure Ollama service is running for model creation
-if systemctl is-active --quiet ollama; then
-    echo "Ollama service is active."
-else
-    echo "Starting Ollama service..."
-    systemctl start ollama || true
-    sleep 3
-fi
+case "$1" in
+    configure)
+        echo "====================================================="
+        echo " Configuring NEMS AI Component"
+        echo "====================================================="
 
-# Detect Total RAM in Megabytes
-TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
+        # 1. Install Ollama runtime if not already present
+        if ! command -v ollama > /dev/null 2>&1; then
+            echo "--> Installing Ollama runtime binary..."
+            curl -fsSL https://ollama.com/install.sh | sh
+        else
+            echo "--> Ollama runtime already installed."
+        fi
 
-# Select hardware tier
-if [ "$TOTAL_RAM_MB" -ge 15000 ]; then
-    # 16GB+ Systems (VMs / Heavy x86 bare metal)
-    BASE_MODEL="llama3.1:8b"
-elif [ "$TOTAL_RAM_MB" -ge 3800 ]; then
-    # 4GB - 8GB Systems (RPi 4/5 4GB or 8GB)
-    BASE_MODEL="llama3.2:3b"
-else
-    # < 4GB Systems (RPi 3 / RPi 4 2GB)
-    BASE_MODEL="llama3.2:1b"
-fi
+        # 2. Detect GPU Hardware Acceleration
+        echo "--> Detecting graphics hardware..."
+        HAS_GPU=false
+        GPU_TYPE="None (CPU Only)"
 
-echo "Detected ${TOTAL_RAM_MB}MB RAM. Selected base model: ${BASE_MODEL}"
+        if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+            HAS_GPU=true
+            GPU_TYPE="NVIDIA (nvidia-smi driver active)"
+        elif [ -c /dev/nvidia0 ] || [ -c /dev/kfd ]; then
+            HAS_GPU=true
+            GPU_TYPE="NVIDIA/AMD Render Node (/dev)"
+        elif lspci 2>/dev/null | grep -E -i 'vga|3d|display' | grep -E -i 'nvidia|amd|radeon' >/dev/null 2>&1; then
+            HAS_GPU=true
+            GPU_TYPE="Discrete NVIDIA/AMD GPU (PCI)"
+        fi
 
-# Pull base model and build 'nems-ai' model alias
-if command -v ollama >/dev/null 2>&1; then
-    echo "Pulling ${BASE_MODEL} payload..."
-    ollama pull "$BASE_MODEL"
+        echo "    Hardware Acceleration: ${GPU_TYPE}"
 
-    # Create temporary Modelfile
-    TMP_MODELFILE=$(mktemp)
-    cat <<EOF > "$TMP_MODELFILE"
+        # 3. Configure Systemd CPU Limits for Non-GPU Nodes
+        mkdir -p /etc/systemd/system/ollama.service.d
+        if [ "$HAS_GPU" = "false" ]; then
+            echo "--> Applying CPU thread cap (2 threads) to prevent host exhaustion..."
+            cat <<EOF > /etc/systemd/system/ollama.service.d/override.conf
+[Service]
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_NUM_THREADS=2"
+EOF
+        else
+            # Clear limits if running with GPU offloading
+            rm -f /etc/systemd/system/ollama.service.d/override.conf
+        fi
+
+        # 4. Ensure systemd service is active and enabled
+        if command -v systemctl > /dev/null 2>&1; then
+            echo "--> Activating Ollama systemd service..."
+            systemctl daemon-reload || true
+            systemctl enable --now ollama.service || true
+            sleep 3
+        fi
+
+        # 5. Set directory permissions for PHP / www-data
+        echo "--> Setting up NEMS AI storage directory..."
+        mkdir -p /usr/local/share/nems/nems-ai
+        chown -R www-data:www-data /usr/local/share/nems/nems-ai
+        chmod -R 775 /usr/local/share/nems/nems-ai
+
+        # 6. Detect System RAM and Assign LLM Tier
+        echo "--> Calculating optimal LLM tier..."
+        TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
+
+        if [ "$HAS_GPU" = "true" ] && [ "$TOTAL_RAM_MB" -ge 15000 ]; then
+            # 16GB+ Systems WITH dedicated GPU
+            BASE_MODEL="llama3.1:8b"
+        elif [ "$TOTAL_RAM_MB" -ge 3800 ]; then
+            # 4GB - 16GB Systems OR 16GB+ CPU-only systems
+            BASE_MODEL="llama3.2:3b"
+        else
+            # < 4GB Systems
+            BASE_MODEL="llama3.2:1b"
+        fi
+
+        echo "    Detected ${TOTAL_RAM_MB} MB RAM (GPU: ${HAS_GPU}). Selected base model: ${BASE_MODEL}"
+
+        # 7. Pull base model and build 'nems-ai' model alias
+        if command -v ollama > /dev/null 2>&1; then
+            echo "--> Downloading LLM payload (${BASE_MODEL})..."
+            echo "    (This may take a few minutes depending on your internet connection speed)"
+
+            if ollama pull "$BASE_MODEL"; then
+                TMP_MODELFILE=$(mktemp)
+                cat <<EOF > "$TMP_MODELFILE"
 FROM ${BASE_MODEL}
 PARAMETER temperature 0.2
 PARAMETER num_predict 60
 EOF
 
-    echo "Binding ${BASE_MODEL} to 'nems-ai' Ollama alias..."
-    ollama create nems-ai -f "$TMP_MODELFILE"
-    rm -f "$TMP_MODELFILE"
-fi
+                echo "--> Binding ${BASE_MODEL} to 'nems-ai' Ollama alias..."
+                ollama create nems-ai -f "$TMP_MODELFILE" || true
+                rm -f "$TMP_MODELFILE"
+            else
+                echo "WARNING: Model download deferred. You can complete it manually later with:"
+                echo "         ollama pull $BASE_MODEL"
+            fi
+        fi
+
+        echo "====================================================="
+        echo " NEMS AI Configuration Complete"
+        echo "====================================================="
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
 
 exit 0
