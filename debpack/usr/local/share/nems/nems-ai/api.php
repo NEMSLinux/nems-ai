@@ -4,9 +4,31 @@ set_time_limit(60);
 
 $nems_ai_dir = '/usr/local/share/nems/nems-ai';
 $db_path = $nems_ai_dir . '/noc_history.db';
+$lock_file = '/tmp/nems-ai.lock';
 $ollama_url = 'http://127.0.0.1:11434/api/generate';
 
-// 1. Initialize SQLite 24-Hour History Database
+// Fast Busy Check: Return busy status immediately if a query is actively generating
+if (file_exists($lock_file) && (time() - filemtime($lock_file) < 40)) {
+    header('Content-Type: application/json');
+    echo json_encode([
+        'success' => false,
+        'status'  => 'busy',
+        'message' => 'NEMS AI engine is currently processing a prior request.'
+    ]);
+    exit();
+}
+
+// Acquire Atomic Lock
+touch($lock_file);
+
+// Ensure lock is cleared on script exit or unexpected crash
+register_shutdown_function(function() use ($lock_file) {
+    if (file_exists($lock_file)) {
+        @unlink($lock_file);
+    }
+});
+
+// Initialize SQLite 24-Hour History Database
 try {
     $db = new PDO('sqlite:' . $db_path);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -28,8 +50,16 @@ $baseline_text = $payload['baseline_text'] ?? '';
 $now = time();
 $model_name = 'nems-ai';
 
-// 2. Process Payload Types & Humanized Prompts
-if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
+// Construct Prompts
+if ($event_type === 'flapping') {
+    $host = $payload['host'] ?? 'Unknown Host';
+    $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
+            . "Generate a single natural sentence under 15 words explaining that server {$host} went down but recovered almost immediately.\n"
+            . "STRICT DIRECTIVES:\n"
+            . "1. Speak naturally like an engineer in the room.\n"
+            . "2. Write ONLY the final spoken sentence.";
+
+} else if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
     $incidents = $payload['incidents'];
     $incident_summaries = [];
 
@@ -49,23 +79,17 @@ if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
         $incident_summaries[] = "- Host: {$alias} | Check: {$check} | Error: {$output}";
     }
 
-    if ($db) {
-        try { $db->exec("DELETE FROM event_log WHERE timestamp < " . ($now - 86400)); } catch (Exception $e) {}
-    }
-
     $summary_list_str = implode("\n", $incident_summaries);
 
     $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
             . "Summarize these NEW network incidents into a single, natural spoken sentence (under 25 words):\n"
             . "{$summary_list_str}\n\n"
             . "STRICT DIRECTIVES:\n"
-            . "1. Speak like a real engineer in the server room, NOT an automated robot.\n"
-            . "2. Base your facts strictly on Baseline Text: '{$baseline_text}'\n"
-            . "3. NEVER claim any offline host, backup, or service is working or online.\n"
-            . "4. Group issues naturally by host (e.g. 'Server Backup and Percy2 are down, taking Ping and SSH offline').\n"
-            . "5. NEVER use slashes ('/'). Use 'and' or 'or' instead.\n"
-            . "6. PROHIBITED BUZZWORDS: 'operational status', 'experiencing state', 'speaker display', 'milestone'.\n"
-            . "7. Write ONLY the final spoken sentence.";
+            . "1. Base facts strictly on Baseline Text: '{$baseline_text}'\n"
+            . "2. NEVER claim any offline host or service is working.\n"
+            . "3. Group issues naturally by host.\n"
+            . "4. NEVER use slashes ('/'). Use 'and' or 'or'.\n"
+            . "5. Write ONLY the final spoken sentence.";
 
 } else if ($event_type === 'batch_recoveries' && !empty($payload['recoveries'])) {
     $recoveries = $payload['recoveries'];
@@ -83,23 +107,19 @@ if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
             . "Summarize these service recoveries in natural human language (under 20 words):\n"
             . "{$summary_list_str}\n\n"
             . "STRICT DIRECTIVES:\n"
-            . "1. Speak like a real human engineer. E.g., 'Services are back up on Backup and Percy2' or 'HTTP and SSH are running again on QNAP'.\n"
-            . "2. NEVER use the blanket word 'All' unless every single service in the network was down.\n"
-            . "3. NEVER mention latency, milliseconds, or remaining incidents.\n"
-            . "4. NEVER use slashes ('/'). Use 'and' or 'or'.\n"
-            . "5. PROHIBITED BUZZWORDS: 'returned to normal operational status', 'speaker display', 'telemetry'.\n"
-            . "6. Write ONLY the final spoken sentence.";
+            . "1. Do NOT use the word 'All'. Say 'Services have recovered on...' and name the hosts.\n"
+            . "2. NEVER mention latency or remaining incidents.\n"
+            . "3. Write ONLY the final spoken sentence.";
 
 } else if (strtolower($event_type) === 'celebration') {
     $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
             . "Announce that network health has restored to 100% using natural, human language (under 20 words).\n"
             . "Baseline Context: '{$baseline_text}'\n\n"
             . "STRICT DIRECTIVES:\n"
-            . "1. Speak like a real engineer in a control room, NOT a corporate press release.\n"
-            . "2. PROHIBITED PHRASES: 'seamless operations', 'optimal performance', 'achieved milestone', 'ensuring', 'operational status'.\n"
-            . "3. Use natural phrasing like: 'All hosts and services are back up and running' or 'Every server is back online'.\n"
-            . "4. Add a quick, genuine word of encouragement at the end (e.g. 'Great job team' or 'Outstanding work team').\n"
-            . "5. Write ONLY the final spoken sentence.";
+            . "1. Speak like a real engineer in a control room.\n"
+            . "2. Use natural phrasing like: 'All hosts and services are back up and running'.\n"
+            . "3. Add a quick, genuine word of encouragement (e.g. 'Great job team').\n"
+            . "4. Write ONLY the final spoken sentence.";
 
 } else {
     // Single Event
@@ -110,48 +130,27 @@ if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
     $state = $check['state'] ?? 0;
     $output = $check['plugin_output'] ?? '';
 
-    $occurrences_24h = 0;
-    if ($db && !empty($host)) {
-        try {
-            $stmt = $db->prepare("INSERT INTO event_log (timestamp, host_name, service_description, state, plugin_output) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$now, $host, $service, $state, $output]);
-            $db->exec("DELETE FROM event_log WHERE timestamp < " . ($now - 86400));
-
-            $count_stmt = $db->prepare("SELECT COUNT(*) FROM event_log WHERE host_name = ? AND service_description = ? AND timestamp > ?");
-            $count_stmt->execute([$host, $service, $now - 86400]);
-            $occurrences_24h = (int)$count_stmt->fetchColumn();
-        } catch (Exception $e) {}
-    }
-
-    $context_str = $occurrences_24h > 1 ? "Failed {$occurrences_24h} times in past 24h." : "First occurrence today.";
-
     if (strtolower($event_type) === 'recovery') {
         $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
                 . "Generate a direct spoken sentence in conversational human language under 20 words.\n"
                 . "Target: {$service} on {$alias}\n"
                 . "Restored Status Metrics: {$output}\n\n"
                 . "STRICT DIRECTIVES:\n"
-                . "1. Confirm {$service} on {$alias} is back up and running (or back online).\n"
-                . "2. State actual numbers or speed metrics if present (e.g., 'downloading at 150 megabits per second').\n"
-                . "3. NEVER say 'returned to normal operational status' or mention remaining issues/speaker displays.\n"
-                . "4. NEVER use slashes ('/'). Use 'and' or 'or'.\n"
-                . "5. Write ONLY the final spoken sentence.";
-
+                . "1. Confirm {$service} on {$alias} is back online.\n"
+                . "2. State actual throughput metrics if present.\n"
+                . "3. Write ONLY the final spoken sentence.";
     } else {
         $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
-                . "Generate a direct, clear alert in natural human language under 20 words.\n"
+                . "Generate a direct alert in natural human language under 20 words.\n"
                 . "Target: {$service} on {$alias}\n"
-                . "Error Output: {$output}\n"
-                . "Context: {$context_str}\n\n"
+                . "Error Output: {$output}\n\n"
                 . "STRICT DIRECTIVES:\n"
-                . "1. State the failure naturally (e.g., 'Server {$alias} is offline' or '{$service} on {$alias} is down').\n"
-                . "2. NEVER use slashes ('/'). Use 'and' or 'or'.\n"
-                . "3. PROHIBITED BUZZWORDS: 'operational status', 'speaker display', 'critical condition', 'experiencing issues'.\n"
-                . "4. Write ONLY the final spoken sentence without setup fluff or quotes.";
+                . "1. State the failure naturally (e.g. 'Server {$alias} is offline').\n"
+                . "2. Write ONLY the final spoken sentence.";
     }
 }
 
-// 3. Query Ollama Engine
+// Query Ollama Engine
 $ch_ollama = curl_init($ollama_url);
 curl_setopt($ch_ollama, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch_ollama, CURLOPT_POST, true);
@@ -171,12 +170,16 @@ curl_setopt($ch_ollama, CURLOPT_POSTFIELDS, json_encode([
 $ollama_res = curl_exec($ch_ollama);
 curl_close($ch_ollama);
 
+// Release Lock
+if (file_exists($lock_file)) {
+    @unlink($lock_file);
+}
+
 if ($ollama_res) {
     $ollama_json = json_decode($ollama_res, true);
     $raw_speech = trim($ollama_json['response'] ?? '');
 
     $speech = preg_replace('/^["\']|["\']$/', '', $raw_speech);
-    $speech = preg_replace('/^(Technical Units expanded|Note|Summary|Result):/i', '', $speech);
     $speech = str_replace(['*', '#', '`', "\n", "\r", '"', "'"], ' ', $speech);
     $speech = trim(preg_replace('/\s+/', ' ', $speech));
 
