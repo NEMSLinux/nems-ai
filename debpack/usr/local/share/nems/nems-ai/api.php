@@ -28,27 +28,7 @@ $baseline_text = $payload['baseline_text'] ?? '';
 $now = time();
 $model_name = 'nems-ai';
 
-// PHP Post-Processing Unit & Slash Expander
-function expandSpokenUnits(string $text): string {
-    $text = preg_replace('/\bMB\/s\b/i', 'megabytes per second', $text);
-    $text = preg_replace('/\bKB\/s\b/i', 'kilobytes per second', $text);
-    $text = preg_replace('/\bGB\/s\b/i', 'gigabytes per second', $text);
-
-    $text = preg_replace('/([a-zA-Z0-9]+)\s*\/\s*([a-zA-Z0-9]+)/', '$1 and $2', $text);
-
-    $replacements = [
-        '/\bMbps\b/i'  => 'megabits per second',
-        '/\bGbps\b/i'  => 'gigabits per second',
-        '/\bms\b/i'    => 'milliseconds',
-        '/\bGB\b/i'    => 'gigabytes',
-        '/\bMB\b/i'    => 'megabytes',
-        '/\bCPU\b/i'   => 'C P U',
-        '/\bRAM\b/i'   => 'RAM'
-    ];
-    return preg_replace(array_keys($replacements), array_values($replacements), $text);
-}
-
-// 2. Process Payload Types
+// 2. Process Payload Types & Humanized Prompts
 if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
     $incidents = $payload['incidents'];
     $incident_summaries = [];
@@ -66,7 +46,6 @@ if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
                 $stmt->execute([$now, $host, $check, $state, $output]);
             } catch (Exception $e) {}
         }
-
         $incident_summaries[] = "- Host: {$alias} | Check: {$check} | Error: {$output}";
     }
 
@@ -76,42 +55,51 @@ if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
 
     $summary_list_str = implode("\n", $incident_summaries);
 
-    $prompt = "You are NEMS AI, an intelligent NOC voice assistant.\n"
-            . "Synthesize these simultaneous network incidents into a single, logical spoken summary (under 35 words):\n"
+    $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
+            . "Summarize these NEW network incidents into a single, natural spoken sentence (under 25 words):\n"
             . "{$summary_list_str}\n\n"
             . "STRICT DIRECTIVES:\n"
-            . "1. EVERY item listed is an active failure. NEVER claim any service or backup is online, working, or functioning.\n"
-            . "2. Group failures by Host: If a host has an invalid address/hostname or is down, state that the host issue is affecting its checks (e.g. Ping and SSH).\n"
-            . "3. Clearly separate issues on different hosts (e.g. 'Host test has an invalid address rejecting ping and SSH, while NEMS Migrator backup is unauthorized').\n"
-            . "4. NEVER use slash characters ('/'). Use 'and' or 'or' instead.\n"
-            . "5. Do NOT use setup phrases like 'Critical issue with' or quotes. State facts directly.\n"
-            . "6. Maintain strict subject-verb agreement for singular vs plural items (e.g., write 'There is 1 active incident' instead of 'There are 1 active incidents').";
+            . "1. Speak like a real engineer in the server room, NOT an automated robot.\n"
+            . "2. Base your facts strictly on Baseline Text: '{$baseline_text}'\n"
+            . "3. NEVER claim any offline host, backup, or service is working or online.\n"
+            . "4. Group issues naturally by host (e.g. 'Server Backup and Percy2 are down, taking Ping and SSH offline').\n"
+            . "5. NEVER use slashes ('/'). Use 'and' or 'or' instead.\n"
+            . "6. PROHIBITED BUZZWORDS: 'operational status', 'experiencing state', 'speaker display', 'milestone'.\n"
+            . "7. Write ONLY the final spoken sentence.";
 
 } else if ($event_type === 'batch_recoveries' && !empty($payload['recoveries'])) {
     $recoveries = $payload['recoveries'];
     $recovery_summaries = [];
 
     foreach ($recoveries as $rec) {
-        $host = $rec['host'] ?? '';
-        $alias = $rec['alias'] ?? $host;
+        $alias = $rec['alias'] ?? ($rec['host'] ?? '');
         $check = $rec['checkName'] ?? '';
-        $output = $rec['msg'] ?? '';
-
-        $recovery_summaries[] = "- Host: {$alias} | Check: {$check} | Output: {$output}";
+        $recovery_summaries[] = "- Host: {$alias} | Check: {$check}";
     }
 
     $summary_list_str = implode("\n", $recovery_summaries);
 
-    $prompt = "You are NEMS AI, an intelligent NOC voice assistant.\n"
-            . "Synthesize these service recoveries into a concise spoken summary under 25 words:\n"
+    $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
+            . "Summarize these service recoveries in natural human language (under 20 words):\n"
             . "{$summary_list_str}\n\n"
             . "STRICT DIRECTIVES:\n"
-            . "1. Group recoveries by host and confirm services are back online.\n"
-            . "2. State actual numerical speed or latency metrics if present.\n"
-            . "3. NEVER use slash characters ('/'). Use 'and' or 'or' instead.\n"
-            . "4. Write ONLY the final spoken sentence. No setup words or quotes.\n"
-            . "5. Maintain strict subject-verb agreement for singular vs plural items (e.g., write 'There is 1 active incident' instead of 'There are 1 active incidents').";
+            . "1. Speak like a real human engineer. E.g., 'Services are back up on Backup and Percy2' or 'HTTP and SSH are running again on QNAP'.\n"
+            . "2. NEVER use the blanket word 'All' unless every single service in the network was down.\n"
+            . "3. NEVER mention latency, milliseconds, or remaining incidents.\n"
+            . "4. NEVER use slashes ('/'). Use 'and' or 'or'.\n"
+            . "5. PROHIBITED BUZZWORDS: 'returned to normal operational status', 'speaker display', 'telemetry'.\n"
+            . "6. Write ONLY the final spoken sentence.";
 
+} else if (strtolower($event_type) === 'celebration') {
+    $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
+            . "Announce that network health has restored to 100% using natural, human language (under 20 words).\n"
+            . "Baseline Context: '{$baseline_text}'\n\n"
+            . "STRICT DIRECTIVES:\n"
+            . "1. Speak like a real engineer in a control room, NOT a corporate press release.\n"
+            . "2. PROHIBITED PHRASES: 'seamless operations', 'optimal performance', 'achieved milestone', 'ensuring', 'operational status'.\n"
+            . "3. Use natural phrasing like: 'All hosts and services are back up and running' or 'Every server is back online'.\n"
+            . "4. Add a quick, genuine word of encouragement at the end (e.g. 'Great job team' or 'Outstanding work team').\n"
+            . "5. Write ONLY the final spoken sentence.";
 
 } else {
     // Single Event
@@ -138,31 +126,32 @@ if ($event_type === 'batch_incidents' && !empty($payload['incidents'])) {
     $context_str = $occurrences_24h > 1 ? "Failed {$occurrences_24h} times in past 24h." : "First occurrence today.";
 
     if (strtolower($event_type) === 'recovery') {
-        $prompt = "You are NEMS AI, an intelligent NOC voice assistant.\n"
-                . "Generate a single direct spoken sentence under 25 words.\n"
+        $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
+                . "Generate a direct spoken sentence in conversational human language under 20 words.\n"
                 . "Target: {$service} on {$alias}\n"
                 . "Restored Status Metrics: {$output}\n\n"
-                . "Directives:\n"
-                . "1. Confirm {$service} has returned to normal status.\n"
-                . "2. State the actual numbers/speeds from Restored Status Metrics (e.g. download, upload, and ping).\n"
-                . "3. NEVER say 'results available'. State actual speed values directly.\n"
-                . "4. NEVER use slash characters ('/'). Use 'and' or 'or' instead.\n"
-                . "5. Write ONLY the spoken sentence.\n"
-                . "6. Maintain strict subject-verb agreement for singular vs plural items (e.g., write 'There is 1 active incident' instead of 'There are 1 active incidents').";
+                . "STRICT DIRECTIVES:\n"
+                . "1. Confirm {$service} on {$alias} is back up and running (or back online).\n"
+                . "2. State actual numbers or speed metrics if present (e.g., 'downloading at 150 megabits per second').\n"
+                . "3. NEVER say 'returned to normal operational status' or mention remaining issues/speaker displays.\n"
+                . "4. NEVER use slashes ('/'). Use 'and' or 'or'.\n"
+                . "5. Write ONLY the final spoken sentence.";
 
     } else {
-        $prompt = "You are NEMS AI, an intelligent NOC voice assistant.\n"
-                . "Generate a single direct spoken sentence under 20 words for a speaker display.\n"
+        $prompt = "You are NEMS AI, a plain-spoken NOC voice engineer.\n"
+                . "Generate a direct, clear alert in natural human language under 20 words.\n"
                 . "Target: {$service} on {$alias}\n"
                 . "Error Output: {$output}\n"
-                . "Context: {$context_str}\n"
-                . "NEVER use slash characters ('/'). State the exact issue directly without setup fluff.\n"
-                . "Maintain strict subject-verb agreement for singular vs plural items (e.g., write 'There is 1 active incident' instead of 'There are 1 active incidents').";
-
+                . "Context: {$context_str}\n\n"
+                . "STRICT DIRECTIVES:\n"
+                . "1. State the failure naturally (e.g., 'Server {$alias} is offline' or '{$service} on {$alias} is down').\n"
+                . "2. NEVER use slashes ('/'). Use 'and' or 'or'.\n"
+                . "3. PROHIBITED BUZZWORDS: 'operational status', 'speaker display', 'critical condition', 'experiencing issues'.\n"
+                . "4. Write ONLY the final spoken sentence without setup fluff or quotes.";
     }
 }
 
-// 3. Query Ollama Engine (45-second budget)
+// 3. Query Ollama Engine
 $ch_ollama = curl_init($ollama_url);
 curl_setopt($ch_ollama, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch_ollama, CURLOPT_POST, true);
@@ -172,7 +161,11 @@ curl_setopt($ch_ollama, CURLOPT_POSTFIELDS, json_encode([
     'model' => $model_name,
     'prompt' => $prompt,
     'stream' => false,
-    'options' => ['num_predict' => 60, 'temperature' => 0.2]
+    'options' => [
+        'num_predict' => 60,
+        'temperature' => 0.2,
+        'num_thread'  => 2
+    ]
 ]));
 
 $ollama_res = curl_exec($ch_ollama);
@@ -181,13 +174,11 @@ curl_close($ch_ollama);
 if ($ollama_res) {
     $ollama_json = json_decode($ollama_res, true);
     $raw_speech = trim($ollama_json['response'] ?? '');
-    
+
     $speech = preg_replace('/^["\']|["\']$/', '', $raw_speech);
     $speech = preg_replace('/^(Technical Units expanded|Note|Summary|Result):/i', '', $speech);
     $speech = str_replace(['*', '#', '`', "\n", "\r", '"', "'"], ' ', $speech);
     $speech = trim(preg_replace('/\s+/', ' ', $speech));
-
-    $speech = expandSpokenUnits($speech);
 
     if (!empty($speech)) {
         echo json_encode([
@@ -201,11 +192,10 @@ if ($ollama_res) {
 }
 
 // Fallback response
-$fallback_speech = expandSpokenUnits($baseline_text);
 echo json_encode([
     'success' => true,
     'ai_active' => false,
-    'speech_text' => $fallback_speech,
+    'speech_text' => $baseline_text,
     'display_text' => $baseline_text
 ]);
 exit();
