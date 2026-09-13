@@ -3,34 +3,31 @@ An on-device AI and Smart Notification engine for NEMS Linux by Robbie Ferguson.
 
 ![nems-ai Terminal Output](nems-ai_1.8.008.gif)
 
-`nems-ai` is an optional, fully local AI engine designed to run directly on your NEMS Server. It does not connect to external servers, cloud APIs, or third-party services. All data processing occurs 100% on-device and completely private to your local network.
+nems-ai downloads the entire content of the NEMS Documentation site and ingests it as its knowledge.
 
-**nems-ai is not installed by default and will never install itself.** You must explicitly choose to install it on your system by running:
+nems-ai is designed to be run directly on the NEMS Server; it doesn't connect to any servers, use any cloud APIs or "big tech" infrastructure or service. It doesn't share anything with anyone, and simply runs on your local NEMS Server if you call it.
 
-```bash
-sudo apt update && sudo apt install nems-ai
+**nems-ai is not installed by default and will not install itself.** You must install it yourself with `sudo apt update && sudo apt install nems-ai`
 
-```
+**Current Status:** Proof of concept / Active Development
 
-**Current Status:** Proof of Concept / Active Development
+Requires NEMS Linux 1.8 or higher.
 
-**Requirement:** NEMS Linux 1.8 or higher
+Automatic Hardware & Model Optimization
+=======================================
 
----
+When installed, `nems-ai` automatically inspects your server hardware, detecting available system memory and checking for dedicated graphics hardware (GPU acceleration) to choose the ideal Large Language Model (LLM) tier.
 
-# Automatic Hardware Optimization
+On CPU-only systems and virtual machines, `nems-ai` automatically caps background CPU thread consumption. This ensures quick response times without bogging down host processor cores or impacting core monitoring checks.
 
-When installed, `nems-ai` automatically detects your system's available RAM and selects the optimal Large Language Model (LLM) tier to ensure fast synthesis without competing with Nagios Core for system resources:
+| Hardware Profile | Model Selected | Target Systems & Characteristics |
+| :--- | :--- | :--- |
+| **GPU Accelerated**<br>*(16 GB+ RAM with dedicated GPU)* | `llama3.1:8b` | **Enterprise Grade:** High-performance NOC synthesis providing deep root-cause insight on GPU-accelerated server hardware. |
+| **Standard Systems & VMs**<br>*(CPU-Only or 4 GB – 16 GB+ RAM)* | `llama3.2:3b` | **Balanced & Efficient:** Optimized causal reasoning with automatic CPU thread limiting for Raspberry Pi 4/5, virtual machines, and CPU-only systems. |
+| **Low-Memory Hardware**<br>*(< 4 GB RAM)* | `llama3.2:1b` | **Ultra-Lightweight:** Minimal memory footprint (~0.9 GB) designed to run smoothly on lower-spec hardware without competing with Nagios Core. |
 
-| System Memory | LLM Model | Target Systems & Characteristics |
-| --- | --- | --- |
-| **< 4 GB RAM** | `llama3.2:1b` | **Ultra-Lightweight:** Low RAM footprint (~0.9 GB) designed to run smoothly on lower-spec hardware without impacting core monitoring. |
-| **4 GB – 16 GB RAM** | `llama3.2:3b` | **Balanced:** Enhanced contextual reasoning (~2.0 GB footprint) for Raspberry Pi 4/5 and mid-range systems. |
-| **16 GB+ RAM** | `llama3.1:8b` | **Enterprise Grade:** High-performance NOC synthesis (~4.8 GB footprint) providing deep root-cause insight on Enterprise servers and VM hosts. |
-
----
-
-# NEMS API Integration
+NEMS API Integration
+====================
 
 When `nems-ai` is installed, it registers the `/nems-api/nems-ai` endpoint. Real-time interfaces (such as NEMS Central Command) route raw incident and recovery alerts through this endpoint to generate concise, natural-language voice and display notifications.
 
@@ -38,11 +35,9 @@ If `nems-ai` is not installed on your system, the endpoint safely remains inacti
 
 For complete endpoint specifications, payload parameters, and JSON examples, see the [NEMS API Documentation](https://docs.nemslinux.com/en/latest/advanced/nems-api.html).
 
----
+Future features
+===============
 
-# Future Features
-
-* Ability to query `nems-ai` about the real-time state of any monitored node (e.g., *"How long has my web server been down?"* or *"Which host has the highest CPU usage?"*).
-* Advanced diagnostic suggestions during multi-system outages (e.g., identifying when network latency or bad IP addresses trigger cascading service check failures).
-* Improved NEMS Linux documentation knowledge base integration to ensure recommendations strictly follow NEMS Web Admin workflows rather than raw Nagios Core CLI commands.
-
+* Ability to ask nems-ai about the state of any of your monitored systems. E.g., "How long has my web server been down for?" or "How much disk space is left on my domain controller?"
+* nems-ai to optionally power notifications, making them much more detailed and unique. E.g., "The web server at location 3 has been flapping for a few hours. I notice the CPU usage has been really high during this time, and it looks like there's a big powershell process running, so it may be good to remote in and have a look."
+* A better understanding of NEMS documentation as source of truth. Currently, the LLM gets confused between NEMS Linux and Nagios Core, so provides CLI check commands rather than following the NEMS configuration flow.
